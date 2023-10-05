@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using I18nApi.Application.Common.Interfaces.Persistence;
+using I18nApi.Application.Upload.Queries;
 using I18nApi.Domain.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -9,7 +10,7 @@ using MongoDB.Driver;
 
 namespace I18nApi.Infrastructure.Persistence;
 
-public class DataRepository: BaseRepository, IDataRepository
+public class DataRepository : BaseRepository, IDataRepository
 {
     private readonly IMongoCollection<BsonDocument> _collection;
 
@@ -34,10 +35,39 @@ public class DataRepository: BaseRepository, IDataRepository
             List<BsonDocument> batch = batchList[index];
             _collection.InsertMany(batch);
         });
-        
+
         Logger.LogInformation("Data persisted");
 
         return data;
+    }
+
+    public List<Dictionary<string, object>> FindAll<TResult>(GetDataQuery<TResult> query)
+    {
+        FilterDefinition<BsonDocument>? filter = Builders<BsonDocument>.Filter.Empty;
+        if (query.Property is not null)
+        {
+            filter |= Builders<BsonDocument>.Filter.Eq(query.Property, query.Value);
+        }
+
+        List<BsonDocument> data = new();
+        if (query.OrderByDesc is not null)
+        {
+            data = _collection.Find(filter)
+                .SortByDescending(x => x[query.OrderByDesc!])
+                .Skip((query.Page - 1) * query.Size)
+                .Limit(query.Size)
+                .ToList();
+        }
+        else
+        {
+            data = _collection.Find(filter)
+                .SortBy(x => String.IsNullOrEmpty(query.OrderBy) ? x[query.OrderBy] : x[0])
+                .Skip((query.Page - 1) * query.Size)
+                .Limit(query.Size)
+                .ToList();
+        }
+
+        return data.ConvertAll(x => x.ToDictionary()).ToList();
     }
 
     private List<BsonDocument> DataToDocuments(List<Dictionary<string, string?>> data)
